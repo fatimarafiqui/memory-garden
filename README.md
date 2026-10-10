@@ -8,6 +8,10 @@ Almost nobody designs for AI memory. This project treats memory as something wit
 
 The agent here is a deliberately simple, rule-based stand-in (no model, no real data, nothing proprietary). The point is the interface, not the intelligence.
 
+## Look
+
+An isometric block of garden: lime ground, flowers built from little 3-tone balls, trees as stacked spheres, terracotta plots, yellow paths and halftone shadows. The style is inspired by [Garden Blocks](https://dribbble.com/shots/8552286-Garden-Blocks) by Guillaume Kurkdjian; it's a re-interpretation, not a copy.
+
 ## The metaphor
 
 | Memory event | Garden event |
@@ -15,7 +19,7 @@ The agent here is a deliberately simple, rule-based stand-in (no model, no real 
 | You tell the agent a fact | A seed is planted; it sprouts and blooms over a few days |
 | The fact isn't used | It wilts: stem bends, petals fall, colour drains |
 | The agent recalls it (you ask) | It's watered; neighbours it's linked to get a little fresher |
-| Two facts share a topic | Cross-pollination: a dotted arc with drifting pollen |
+| Two facts share a topic | Cross-pollination: a yellow path between them with white pollen drifting along it |
 | A fact is recalled and well-connected | Consolidation: it grows into a tree and absorbs its neighbours as acorns |
 | Different kinds of memory | Different flower species (people, preferences, places, work, plans, facts) |
 
@@ -28,7 +32,7 @@ The switcher in the UI changes what happens when a memory runs out of strength. 
 | Style | What you see | What the agent knows | Trade-off |
 | --- | --- | --- | --- |
 | **Fade** | Wilts, then is simply gone | "I used to know something about that, but it faded." | Honest, but the detail is lost for good |
-| **Compost** | Returns to the soil as a mound; the gist remains and feeds new growth on the same topic | "I've only got the gist now." | Graceful loss that keeps some value |
+| **Compost** | Returns to the soil as a dark plot; the gist remains and feeds new growth on the same topic | "I've only got the gist now." | Graceful loss that keeps some value |
 | **Press** | Flattened into a herbarium sheet, out of the garden | Can retrieve it whole on request | Safe, but nothing is really forgotten |
 | **Delete** | Vanishes with no wilting | "I don't have anything about that." (unaware) | Abrupt; the agent can't tell you it lost anything |
 

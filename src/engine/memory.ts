@@ -11,7 +11,8 @@ export interface Memory {
   gist: string
   keywords: string[]
   category: Category
-  x: number
+  x: number // tile column (0-7)
+  z: number // tile row (0-7)
   born: number
   lastUsed: number
   strength: number
@@ -51,7 +52,9 @@ export const newWorld = (style: ForgetStyle = 'compost'): World => ({
 const START: Record<Category, number> = { person: 0.85, preference: 0.8, work: 0.7, place: 0.7, fact: 0.65, plan: 0.6 }
 // strength lost per day when idle. Plans are short-lived on purpose.
 const RATE: Record<Category, number> = { person: 0.02, preference: 0.025, place: 0.03, work: 0.04, fact: 0.045, plan: 0.09 }
-const ZONE: Record<Category, number> = { person: 150, preference: 310, place: 480, work: 650, plan: 810, fact: 930 }
+// preferred tile column per kind, so each kind forms a loose bed across the block
+const ZONE: Record<Category, number> = { person: 0.8, preference: 2, place: 3.5, work: 4.7, plan: 6, fact: 7 }
+export const GRID = 8
 
 export const WILT_BELOW = 0.35
 const GONE_BELOW = 0.06
@@ -101,19 +104,17 @@ const overlap = (a: string[], b: string[]) => a.filter((k) => b.includes(k))
 
 // ---------- layout ----------
 
-function placeX(memories: Memory[], category: Category): number {
-  const taken = memories.filter((m) => (m.fate === 'alive' || m.fate === 'composted') && !m.mergedInto).map((m) => m.x)
-  let best = ZONE[category]
-  let bestGap = -1
-  for (let i = 0; i < 40; i++) {
-    const x = Math.max(50, Math.min(950, ZONE[category] + (Math.random() - 0.5) * 220))
-    const gap = taken.length ? Math.min(...taken.map((t) => Math.abs(t - x))) : 999
-    if (gap > bestGap) {
-      bestGap = gap
-      best = x
+function placeCell(memories: Memory[], category: Category): { x: number; z: number } {
+  const taken = memories.filter((m) => (m.fate === 'alive' || m.fate === 'composted') && !m.mergedInto)
+  const free: { x: number; z: number; score: number }[] = []
+  for (let c = 0; c < GRID; c++)
+    for (let r = 0; r < GRID; r++) {
+      if (taken.some((t) => t.x === c && t.z === r)) continue
+      const gap = taken.length ? Math.min(...taken.map((t) => Math.hypot(t.x - c, t.z - r))) : 3
+      free.push({ x: c, z: r, score: Math.min(gap, 3) - Math.abs(c - ZONE[category]) * 0.8 + Math.random() * 1.2 })
     }
-  }
-  return best
+  free.sort((a, b) => b.score - a.score)
+  return free.length ? { x: free[0].x, z: free[0].z } : { x: 0, z: 0 }
 }
 
 const visible = (m: Memory) => m.fate === 'alive' && !m.mergedInto
@@ -161,7 +162,7 @@ function plant(w: World, text: string): PlantResult {
       gist: kws.slice(0, 3).join(' · '),
       keywords: kws,
       category,
-      x: placeX(w.memories, category),
+      ...placeCell(w.memories, category),
       born: w.day,
       lastUsed: w.day,
       strength: START[category],
@@ -253,7 +254,7 @@ function recall(w: World, text: string): string {
     m.strength = 0.5
     m.lastUsed = w.day
     m.recalls++
-    m.x = placeX(w.memories, m.category)
+    Object.assign(m, placeCell(w.memories, m.category))
     log(w, 'revive', `Took ${quote(m.gist)} out of the herbarium`)
     return `Found it in the herbarium, kept whole: ${quote(m.text)} I’ve put it back in the garden.`
   }
