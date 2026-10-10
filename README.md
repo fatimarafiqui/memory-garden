@@ -10,7 +10,7 @@ The agent here is a deliberately simple, rule-based stand-in (no model, no real 
 
 ## Look
 
-An isometric block of garden: lime ground, flowers built from little 3-tone balls, trees as stacked spheres, terracotta plots, yellow paths and halftone shadows. The style is inspired by [Garden Blocks](https://dribbble.com/shots/8552286-Garden-Blocks) by Guillaume Kurkdjian; it's a re-interpretation, not a copy.
+A top-down pixel-art farm field: tilled plots on a fenced lawn, tiny flower sprites, a round-canopy tree for consolidated memories, bees carrying pollen along sandy paths, and a mushroom on composted soil. It's drawn on a small canvas and scaled up with nearest-neighbour filtering; the UI uses the Pixelify Sans font and chunky wood-and-cream panels.
 
 ## The metaphor
 
@@ -19,8 +19,8 @@ An isometric block of garden: lime ground, flowers built from little 3-tone ball
 | You tell the agent a fact | A seed is planted; it sprouts and blooms over a few days |
 | The fact isn't used | It wilts: stem bends, petals fall, colour drains |
 | The agent recalls it (you ask) | It's watered; neighbours it's linked to get a little fresher |
-| Two facts share a topic | Cross-pollination: a yellow path between them with white pollen drifting along it |
-| A fact is recalled and well-connected | Consolidation: it grows into a tree and absorbs its neighbours as acorns |
+| Two facts share a topic | Cross-pollination: a dotted sand path between them with a bee shuttling along it |
+| A fact is recalled and well-connected | Consolidation: it grows into a tree and absorbs its neighbours as little bushes |
 | Different kinds of memory | Different flower species (people, preferences, places, work, plans, facts) |
 
 Plans decay fastest, people and preferences slowest, and trees barely at all. Memories that are linked decay more slowly.
@@ -32,7 +32,7 @@ The switcher in the UI changes what happens when a memory runs out of strength. 
 | Style | What you see | What the agent knows | Trade-off |
 | --- | --- | --- | --- |
 | **Fade** | Wilts, then is simply gone | "I used to know something about that, but it faded." | Honest, but the detail is lost for good |
-| **Compost** | Returns to the soil as a dark plot; the gist remains and feeds new growth on the same topic | "I've only got the gist now." | Graceful loss that keeps some value |
+| **Compost** | Returns to the soil as a dark plot with a mushroom; the gist remains and feeds new growth on the same topic | "I've only got the gist now." | Graceful loss that keeps some value |
 | **Press** | Flattened into a herbarium sheet, out of the garden | Can retrieve it whole on request | Safe, but nothing is really forgotten |
 | **Delete** | Vanishes with no wilting | "I don't have anything about that." (unaware) | Abrupt; the agent can't tell you it lost anything |
 

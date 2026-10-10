@@ -12,7 +12,7 @@ export interface Memory {
   keywords: string[]
   category: Category
   x: number // tile column (0-7)
-  z: number // tile row (0-7)
+  z: number // tile row (0-4)
   born: number
   lastUsed: number
   strength: number
@@ -53,8 +53,9 @@ const START: Record<Category, number> = { person: 0.85, preference: 0.8, work: 0
 // strength lost per day when idle. Plans are short-lived on purpose.
 const RATE: Record<Category, number> = { person: 0.02, preference: 0.025, place: 0.03, work: 0.04, fact: 0.045, plan: 0.09 }
 // preferred tile column per kind, so each kind forms a loose bed across the block
-const ZONE: Record<Category, number> = { person: 0.8, preference: 2, place: 3.5, work: 4.7, plan: 6, fact: 7 }
-export const GRID = 8
+const ZONE: Record<Category, number> = { person: 0.7, preference: 2, place: 3.4, work: 4.6, plan: 5.8, fact: 7 }
+export const GRID_W = 8
+export const GRID_H = 5
 
 export const WILT_BELOW = 0.35
 const GONE_BELOW = 0.06
@@ -107,8 +108,8 @@ const overlap = (a: string[], b: string[]) => a.filter((k) => b.includes(k))
 function placeCell(memories: Memory[], category: Category): { x: number; z: number } {
   const taken = memories.filter((m) => (m.fate === 'alive' || m.fate === 'composted') && !m.mergedInto)
   const free: { x: number; z: number; score: number }[] = []
-  for (let c = 0; c < GRID; c++)
-    for (let r = 0; r < GRID; r++) {
+  for (let c = 0; c < GRID_W; c++)
+    for (let r = 0; r < GRID_H; r++) {
       if (taken.some((t) => t.x === c && t.z === r)) continue
       const gap = taken.length ? Math.min(...taken.map((t) => Math.hypot(t.x - c, t.z - r))) : 3
       free.push({ x: c, z: r, score: Math.min(gap, 3) - Math.abs(c - ZONE[category]) * 0.8 + Math.random() * 1.2 })

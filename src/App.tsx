@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
-import Garden, { FlowerHead, SPECIES } from './components/Garden'
+import Garden, { PixelHead, SPECIES } from './components/Garden'
 import {
   ForgetStyle,
   World,
@@ -176,12 +176,7 @@ export default function App() {
               <div className="sheets">
                 {pressed.map((m) => (
                   <button key={m.id} className={`sheet ${m.id === selectedId ? 'sel' : ''}`} onClick={() => setSelectedId(m.id)} title={m.text}>
-                    <svg viewBox="-24 -26 48 52" width="36" height="40">
-                      <path d="M0,24 Q2,6 0,-4" stroke="#8a7a5a" strokeWidth="2" fill="none" />
-                      <g transform="translate(0,-6) rotate(-12)">
-                        <FlowerHead category={m.category} scale={0.9} flat />
-                      </g>
-                    </svg>
+                    <PixelHead category={m.category} flat size={5} />
                     <span>{m.keywords[0]}</span>
                   </button>
                 ))}
@@ -267,7 +262,7 @@ function Legend() {
     <ul className="legend" aria-label="Legend">
       {(Object.keys(SPECIES) as (keyof typeof SPECIES)[]).map((k) => (
         <li key={k}>
-          <i style={{ background: SPECIES[k].petal }} />
+          <i style={{ background: SPECIES[k].p }} />
           {SPECIES[k].label}
         </li>
       ))}

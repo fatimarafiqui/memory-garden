@@ -1,237 +1,318 @@
-import { Category, GRID, Memory, WILT_BELOW, ageOf } from '../engine/memory'
+import { useEffect, useRef } from 'react'
+import { Category, GRID_H, GRID_W, Memory, WILT_BELOW, ageOf } from '../engine/memory'
 
-// Look: an isometric block of garden, inspired by "Garden Blocks" by Guillaume Kurkdjian
-// (lime ground, stacked-sphere topiary, terracotta plots, yellow paths, halftone shadows).
+// Look: a top-down pixel-art farm field. Everything is drawn at a tiny logical resolution
+// onto a canvas and scaled up with nearest-neighbour filtering.
 
-export const W = 1000
-export const H = 560
-
-const TW = 100
-const TH = 50
-const OX = 500
-const OY = 56
-const DEPTH = 36
+const T = 24 // tile size in logical px
+const FX = 12
+const FY = 22
+const CW = FX * 2 + GRID_W * T
+const CH = FY + GRID_H * T + 14
 
 const clamp = (n: number, a: number, b: number) => Math.min(b, Math.max(a, n))
 
 const hex = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16))
-export const mix = (a: string, b: string, t: number) => {
+const mix = (a: string, b: string, t: number) => {
   const [r1, g1, b1] = hex(a)
   const [r2, g2, b2] = hex(b)
   const c = (x: number, y: number) => Math.round(x + (y - x) * t)
   return `#${[c(r1, r2), c(g1, g2), c(b1, b2)].map((v) => v.toString(16).padStart(2, '0')).join('')}`
 }
 
-const LEAF = '#2f7a3a'
-const LEAF_DEEP = '#21602c'
-const DRY = '#c9a24a'
-const PATH = '#f4ec6a'
-const TERRA = '#c98a55'
+const DRY = '#b98a3e'
+const LEAF = '#3f9a3f'
+const LEAF_DARK = '#2c6e32'
 
-export const SPECIES: Record<Category, { petal: string; center: string; petals: number; r: number; label: string }> = {
-  person: { petal: '#ffffff', center: '#f4c430', petals: 7, r: 14, label: 'People' },
-  preference: { petal: '#ffd84a', center: '#e08a2e', petals: 5, r: 13, label: 'Preferences' },
-  place: { petal: '#6fa8ff', center: '#ffffff', petals: 6, r: 13, label: 'Places' },
-  work: { petal: '#ee9a72', center: '#fff0c0', petals: 4, r: 14, label: 'Work' },
-  plan: { petal: '#f7a8c8', center: '#ffffff', petals: 9, r: 12, label: 'Plans' },
-  fact: { petal: '#9fe3c0', center: '#2f7a3a', petals: 3, r: 13, label: 'Facts' },
+interface Species {
+  p: string
+  d: string
+  c: string
+  label: string
+  head: string[] // 7px wide: p petal, d dark petal, c centre
 }
 
-const point = (u: number, v: number) => ({ x: OX + ((u - v) * TW) / 2, y: OY + ((u + v) * TH) / 2 })
-const proj = (c: number, r: number) => point(c + 0.5, r + 0.5)
+export const SPECIES: Record<Category, Species> = {
+  person: { p: '#ffffff', d: '#d6d6e6', c: '#f4c430', label: 'People', head: ['.p.p.p.', '.ppppp.', 'pppcppp', '.ppppp.', '.p.p.p.'] },
+  preference: { p: '#ffd84a', d: '#e0912e', c: '#e0912e', label: 'Preferences', head: ['p.ppp.p', 'ppppppp', 'ppdpdpp', '.ppppp.', '..ppp..'] },
+  place: { p: '#6fa8ff', d: '#3f6fd0', c: '#ffffff', label: 'Places', head: ['..ppp..', '.ppppp.', '.ppcpp.', 'ppppppp', 'd.ddd.d'] },
+  work: { p: '#f08a5d', d: '#c85a3a', c: '#ffe9a8', label: 'Work', head: ['.ppppp.', 'ppdddpp', 'ppdcdpp', 'ppdddpp', '.ppppp.'] },
+  plan: { p: '#f7a8c8', d: '#d86f9f', c: '#ffffff', label: 'Plans', head: ['..p.p..', '.p.p.p.', '..pcp..', '.p.p.p.', '..p.p..'] },
+  fact: { p: '#9fe3a8', d: '#4f9a5a', c: '#2f6a3a', label: 'Facts', head: ['.pp.pp.', 'ppppppp', '..pcp..', '.ppppp.'] },
+}
 
-export function geom(m: Memory, day: number) {
-  const { x: px, y: py } = proj(m.x, m.z)
+const cellOrigin = (m: Memory) => ({ ox: FX + m.x * T, oy: FY + m.z * T })
+
+function geom(m: Memory, day: number) {
   const age = ageOf(m, day)
   const growth = clamp(age / 3, 0, 1)
   const s = clamp(m.strength, 0, 1)
   const w = clamp((WILT_BELOW - s) / 0.3, 0, 1)
-  if (m.tree) {
-    const k = 0.65 + 0.35 * clamp(age / 8, 0, 1)
-    const r1 = (24 + 8 * s) * k
-    return { px, py, x: px, y: py - r1 * 2.9, w, growth, h: r1 * 3, side: 1, r1 }
+  const { ox, oy } = cellOrigin(m)
+  return { age, growth, s, w, ox, oy, cx: ox + 12, by: oy + 17, side: (m.x + m.z) % 2 === 0 ? 1 : -1 }
+}
+
+// ---------- drawing helpers ----------
+
+type Ctx = CanvasRenderingContext2D
+const R = (ctx: Ctx, x: number, y: number, w: number, h: number, col: string) => {
+  ctx.fillStyle = col
+  ctx.fillRect(Math.round(x), Math.round(y), w, h)
+}
+
+const disc = (ctx: Ctx, cx: number, cy: number, r: number, col: string) => {
+  for (let dy = -r; dy <= r; dy++) {
+    const half = Math.floor(Math.sqrt(r * r - dy * dy + 0.5))
+    R(ctx, cx - half, cy + dy, half * 2 + 1, 1, col)
   }
-  const h = 14 + 54 * growth * (0.55 + 0.45 * s)
-  const side = (m.x + m.z) % 2 === 0 ? 1 : -1
-  return { px, py, x: px + side * w * h * 0.4, y: py - h * (1 - 0.5 * w) + 16 * w, w, growth, h, side, r1: 0 }
 }
 
-/** A little 3-tone ball: base, lit side, highlight. */
-function Ball({ cx, cy, r, color, shade, light }: { cx: number; cy: number; r: number; color: string; shade: string; light: string }) {
-  return (
-    <g>
-      <circle cx={cx} cy={cy} r={r} fill={shade} />
-      <circle cx={cx - r * 0.1} cy={cy - r * 0.12} r={r * 0.86} fill={color} />
-      <ellipse cx={cx - r * 0.34} cy={cy - r * 0.38} rx={r * 0.3} ry={r * 0.2} fill={light} opacity={0.75} transform={`rotate(-30 ${cx - r * 0.34} ${cy - r * 0.38})`} />
-    </g>
+const hash = (n: number) => {
+  let h = Math.imul(n + 1, 2654435761) >>> 0
+  h ^= h >>> 15
+  return h >>> 0
+}
+
+const petalColor = (sp: Species, ch: string) => (ch === 'p' ? sp.p : ch === 'd' ? sp.d : sp.c)
+
+function drawHead(ctx: Ctx, cat: Category, cx: number, bottom: number, wilt: number) {
+  const sp = SPECIES[cat]
+  sp.head.forEach((row, j) =>
+    [...row].forEach((ch, i) => {
+      if (ch !== '.') R(ctx, cx - 3 + i, bottom - sp.head.length + j, 1, 1, mix(petalColor(sp, ch), DRY, wilt * 0.85))
+    }),
   )
 }
 
-export function FlowerHead({ category, scale = 1, wilt = 0, flat = false }: { category: Category; scale?: number; wilt?: number; flat?: boolean }) {
-  const sp = SPECIES[category]
-  const base = flat ? mix(sp.petal, '#b9a98a', 0.55) : mix(sp.petal, DRY, wilt * 0.8)
-  const centre = flat ? '#8a7a5a' : mix(sp.center, '#8a6a30', wilt)
-  const pr = sp.r * (sp.petals > 7 ? 0.3 : 0.4)
-  const ring = sp.r * 0.68
-  return (
-    <g transform={`scale(${scale})`}>
-      {Array.from({ length: sp.petals }, (_, i) => {
-        const a = (i * Math.PI * 2) / sp.petals - Math.PI / 2
-        return <Ball key={i} cx={Math.cos(a) * ring} cy={Math.sin(a) * ring * 0.85} r={pr} color={base} shade={mix(base, '#000000', 0.18)} light="#ffffff" />
-      })}
-      <Ball cx={0} cy={0} r={sp.r * 0.38} color={centre} shade={mix(centre, '#000000', 0.2)} light="#ffffff" />
-    </g>
-  )
+function drawBackground(ctx: Ctx) {
+  R(ctx, 0, 0, CW, CH, '#7bb661')
+  for (let j = 0; j < CH / 8; j++) for (let i = 0; i < CW / 8; i++) if ((i + j) % 2) R(ctx, i * 8, j * 8, 8, 8, '#74ae59')
+  for (let k = 0; k < 90; k++) {
+    const h = hash(k)
+    const x = h % CW
+    const y = (h >>> 9) % CH
+    if (x > FX - 6 && x < CW - FX + 6 && y > FY - 10 && y < FY + GRID_H * T + 8) continue
+    R(ctx, x, y, 1, 2, '#5f9a48')
+    R(ctx, x + 1, y + 1, 1, 1, '#5f9a48')
+    if (k % 9 === 0) R(ctx, x, y, 2, 2, k % 2 ? '#fff7d6' : '#ffe27a')
+  }
 }
 
-const zoom = (px: number, py: number, k = 1.3) => `translate(${px} ${py}) scale(${k}) translate(${-px} ${-py})`
-
-const diamond = (cx: number, cy: number, rx: number, ry: number) => `${cx - rx},${cy} ${cx},${cy - ry} ${cx + rx},${cy} ${cx},${cy + ry}`
-
-function Shadow({ x, y, rx }: { x: number; y: number; rx: number }) {
-  return (
-    <g pointerEvents="none">
-      <ellipse cx={x + rx * 0.7} cy={y + 3} rx={rx} ry={rx * 0.42} fill="#8fb83f" opacity={0.55} />
-      <ellipse cx={x + rx * 0.7} cy={y + 3} rx={rx} ry={rx * 0.42} fill="url(#dither)" opacity={0.7} />
-    </g>
-  )
+function drawFence(ctx: Ctx) {
+  const left = FX - 5
+  const right = FX + GRID_W * T + 3
+  const top = FY - 8
+  const bottom = FY + GRID_H * T + 3
+  R(ctx, left, top, right - left + 2, 2, '#a8723a')
+  R(ctx, left, bottom, right - left + 2, 2, '#a8723a')
+  R(ctx, left, top, 2, bottom - top + 2, '#a8723a')
+  R(ctx, right, top, 2, bottom - top + 2, '#a8723a')
+  for (let x = left; x <= right; x += 12) {
+    R(ctx, x, top - 2, 3, 6, '#c9965a')
+    R(ctx, x, bottom - 2, 3, 6, '#c9965a')
+  }
+  for (let y = top; y <= bottom; y += 12) {
+    R(ctx, left, y - 1, 3, 5, '#c9965a')
+    R(ctx, right, y - 1, 3, 5, '#c9965a')
+  }
 }
 
-const Plot = ({ px, py, color = TERRA }: { px: number; py: number; color?: string }) => (
-  <g pointerEvents="none">
-    <polygon points={diamond(px, py + 4, 28, 14)} fill={mix(color, '#000000', 0.22)} />
-    <polygon points={diamond(px, py, 28, 14)} fill={color} />
-  </g>
-)
+function drawTiles(ctx: Ctx, cells: Map<string, Memory>) {
+  for (let c = 0; c < GRID_W; c++)
+    for (let r = 0; r < GRID_H; r++) {
+      const ox = FX + c * T
+      const oy = FY + r * T
+      const m = cells.get(`${c},${r}`)
+      if (!m) {
+        R(ctx, ox + 1, oy + 1, T - 2, T - 2, '#a97b47')
+        R(ctx, ox + 1, oy + T - 2, T - 2, 1, '#93663a')
+      } else if (m.fate === 'composted') {
+        R(ctx, ox + 1, oy + 1, T - 2, T - 2, '#4a2f1c')
+        for (let k = 0; k < 8; k++) {
+          const h = hash(m.x * 31 + m.z * 7 + k)
+          R(ctx, ox + 3 + (h % 18), oy + 3 + ((h >>> 5) % 18), 1, 1, k % 2 ? '#7a5636' : '#2e1c10')
+        }
+      } else {
+        R(ctx, ox + 1, oy + 1, T - 2, T - 2, '#8a5a30')
+        for (let y = oy + 4; y < oy + T - 2; y += 4) R(ctx, ox + 2, y, T - 4, 1, '#744a27')
+        R(ctx, ox + 1, oy + T - 2, T - 2, 1, '#5e3a1d')
+      }
+    }
+}
 
-function Plant({ m, day, selected, onSelect }: { m: Memory; day: number; selected: boolean; onSelect: () => void }) {
-  const { px, py, x, y, w, growth, h, side } = geom(m, day)
-  const s = clamp(m.strength, 0, 1)
-  const opacity = s < 0.2 ? Math.max(0.15, s / 0.2) : 1
-  const stem = mix(LEAF, '#8d8a4a', w)
-  const bud = growth < 0.6
-  const recent = m.recalls > 0 && day - m.lastUsed < 0.8
+const sparkle = (ctx: Ctx, x: number, y: number) => {
+  R(ctx, x, y - 1, 1, 3, '#ffffff')
+  R(ctx, x - 1, y, 3, 1, '#ffffff')
+}
+
+function drawPlant(ctx: Ctx, m: Memory, day: number, now: number) {
+  const { growth, s, w, cx, by, side } = geom(m, day)
   const sp = SPECIES[m.category]
-  const headScale = (0.45 + 0.55 * growth) * (1 - 0.4 * w)
-  const leafY = py - h * 0.4
+  const alpha = s < 0.2 ? Math.max(0.2, s / 0.2) : 1
+  ctx.globalAlpha = alpha
+  R(ctx, cx - 4, by, 9, 2, 'rgba(0,0,0,0.25)')
 
-  return (
-    <g opacity={opacity} onClick={onSelect} style={{ cursor: 'pointer' }} transform={zoom(px, py)}>
-      <rect x={px - 32} y={py - 90} width={64} height={110} fill="transparent" />
-      <Plot px={px} py={py} />
-      <Shadow x={px} y={py} rx={14 + h * 0.12} />
-      <path d={`M${px},${py} Q${px},${py - h * 0.7} ${x},${y}`} stroke={stem} strokeWidth={3.5} fill="none" strokeLinecap="round" />
-      <ellipse cx={px - 8} cy={leafY} rx={8} ry={3.6} fill={stem} transform={`rotate(-28 ${px - 8} ${leafY})`} />
-      <ellipse cx={px + 8} cy={leafY - 12} rx={8} ry={3.6} fill={mix(stem, LEAF_DEEP, 0.4)} transform={`rotate(28 ${px + 8} ${leafY - 12})`} />
-      <g transform={`translate(${x},${y}) rotate(${w * side * 38})`}>
-        {recent && <ellipse rx={sp.r * 2} ry={sp.r * 1.5} className="pulse" fill="none" stroke="#ffffff" strokeWidth={2} />}
-        {bud ? <Ball cx={0} cy={0} r={4 + 6 * growth} color={mix(sp.petal, LEAF, 0.3)} shade={mix(sp.petal, LEAF, 0.6)} light="#ffffff" /> : <FlowerHead category={m.category} scale={headScale} wilt={w} />}
-      </g>
-      {w > 0.15 &&
-        [0, 1, 2].map((i) => (
-          <circle key={i} className="fall" cx={x} cy={y + 4} r={2.8} fill={mix(sp.petal, DRY, 0.6)} style={{ animationDelay: `${i * 1.1}s`, ['--dx' as string]: `${(i - 1) * 14 + side * 10}px` }} />
-        ))}
-      {selected && <polygon points={diamond(px, py, 38, 19)} fill="none" stroke="#ffffff" strokeWidth={2.5} strokeDasharray="5 5" />}
-    </g>
-  )
+  if (growth < 0.25) {
+    R(ctx, cx - 2, by - 1, 4, 2, '#5e3a1d')
+    R(ctx, cx - 1, by - 2, 2, 1, '#d9b36a')
+  } else {
+    const h = 3 + Math.round(11 * growth * (0.55 + 0.45 * s)) - Math.round(w * 3)
+    const stem = mix(LEAF, '#8d8a4a', w)
+    const dx = side * Math.round(w * 3)
+    R(ctx, cx - 1, by - h, 2, h, stem)
+    R(ctx, cx - 4, by - Math.floor(h * 0.55) - 1, 3, 2, stem)
+    R(ctx, cx + 1, by - Math.floor(h * 0.4) - 2, 3, 2, mix(LEAF_DARK, '#8d8a4a', w))
+    const top = by - h + Math.round(w * 3)
+    if (growth < 0.6) {
+      R(ctx, cx - 1 + dx, top - 3, 3, 3, mix(sp.p, LEAF, 0.35))
+      R(ctx, cx + dx, top - 3, 1, 1, mix(sp.p, '#ffffff', 0.3))
+    } else {
+      drawHead(ctx, m.category, cx + dx, top + 1, w)
+    }
+    if (w > 0.15)
+      for (let i = 0; i < 3; i++) {
+        const t = ((now / 160 + i * 5) % 14) / 14
+        ctx.globalAlpha = alpha * (1 - t)
+        R(ctx, cx + dx + (i - 1) * 4 + side * 2, top + t * 12, 1, 1, mix(sp.p, DRY, 0.6))
+      }
+  }
+  ctx.globalAlpha = 1
+  if (m.recalls > 0 && day - m.lastUsed < 0.8 && Math.floor(now / 250) % 2 === 0) sparkle(ctx, cx + 7, by - 15)
 }
 
-function Tree({ m, day, selected, onSelect }: { m: Memory; day: number; selected: boolean; onSelect: () => void }) {
-  const { px, py, w, r1 } = geom(m, day)
-  const s = clamp(m.strength, 0, 1)
-  const opacity = s < 0.2 ? Math.max(0.15, s / 0.2) : 1
-  const r2 = r1 * 0.74
-  const r3 = r1 * 0.5
-  const c1 = py - r1 * 0.8
-  const c2 = c1 - r1 * 0.72 - r2 * 0.4
-  const c3 = c2 - r2 * 0.7 - r3 * 0.4
-  const base = mix(LEAF, DRY, w)
-  const shade = mix(LEAF_DEEP, '#8a6a30', w)
-  const light = mix('#6fc24a', '#e8d27a', w)
-  const recent = m.recalls > 0 && day - m.lastUsed < 0.8
-
-  return (
-    <g opacity={opacity} onClick={onSelect} style={{ cursor: 'pointer' }} transform={zoom(px, py)}>
-      <rect x={px - r1 - 6} y={c3 - r3 - 6} width={r1 * 2 + 12} height={py - c3 + r3 + 24} fill="transparent" />
-      <Shadow x={px} y={py} rx={r1 * 1.15} />
-      <Ball cx={px} cy={c1} r={r1} color={base} shade={shade} light={light} />
-      <Ball cx={px} cy={c2} r={r2} color={base} shade={shade} light={light} />
-      <Ball cx={px} cy={c3} r={r3} color={base} shade={shade} light={light} />
-      {m.children.map((id, i) => (
-        <Ball key={id} cx={px + (i % 2 ? 1 : -1) * (r1 * 0.95 + Math.floor(i / 2) * 6)} cy={py - 5 + (i % 2) * 5} r={7} color={mix(base, '#6fc24a', 0.25)} shade={shade} light={light} />
-      ))}
-      {recent && <ellipse cx={px} cy={c2} rx={r1 * 1.4} ry={r1 * 1.6} className="pulse" fill="none" stroke="#ffffff" strokeWidth={2} />}
-      {w > 0.15 &&
-        [0, 1, 2, 3].map((i) => (
-          <circle key={i} className="fall" cx={px + (i - 1.5) * r1 * 0.5} cy={c1 + r1 * 0.3} r={3.2} fill={base} style={{ animationDelay: `${i * 0.9}s`, ['--dx' as string]: `${(i - 1.5) * 10}px` }} />
-        ))}
-      {selected && <polygon points={diamond(px, py, 38, 19)} fill="none" stroke="#ffffff" strokeWidth={2.5} strokeDasharray="5 5" />}
-    </g>
-  )
+function drawTree(ctx: Ctx, m: Memory, day: number, now: number) {
+  const { age, s, w, cx, by } = geom(m, day)
+  const k = 0.65 + 0.35 * clamp(age / 8, 0, 1)
+  const rad = Math.round((6 + 3 * s) * k)
+  const alpha = s < 0.2 ? Math.max(0.2, s / 0.2) : 1
+  ctx.globalAlpha = alpha
+  const base = mix('#3f9a3f', '#e3a23a', w)
+  const dark = mix('#2c6e32', '#b9722a', w)
+  const light = mix('#6cc24a', '#f2d06a', w)
+  R(ctx, cx - rad - 1, by, rad * 2 + 3, 2, 'rgba(0,0,0,0.25)')
+  R(ctx, cx - 1, by - 7, 3, 7, '#7a4d28')
+  const cy = by - 6 - rad
+  disc(ctx, cx, cy + 1, rad, dark)
+  disc(ctx, cx - 1, cy - 1, rad - 1, base)
+  R(ctx, cx - rad + 2, cy - rad + 3, 3, 1, light)
+  R(ctx, cx - rad + 3, cy - rad + 2, 2, 1, light)
+  R(ctx, cx + 1, cy - 1, 2, 1, light)
+  m.children.forEach((_, i) => {
+    const sx = cx + (i % 2 ? 1 : -1) * (rad + 1 + Math.floor(i / 2) * 3)
+    disc(ctx, sx, by - 1, 2, dark)
+    R(ctx, sx - 1, by - 3, 2, 1, base)
+  })
+  if (w > 0.15)
+    for (let i = 0; i < 4; i++) {
+      const t = ((now / 150 + i * 6) % 16) / 16
+      ctx.globalAlpha = alpha * (1 - t)
+      R(ctx, cx + (i - 1.5) * 4, cy + rad - 2 + t * 12, 2, 1, base)
+    }
+  ctx.globalAlpha = 1
+  if (m.recalls > 0 && day - m.lastUsed < 0.8 && Math.floor(now / 250) % 2 === 0) sparkle(ctx, cx + rad, cy - rad)
 }
 
-function Mound({ m, selected, onSelect }: { m: Memory; selected: boolean; onSelect: () => void }) {
-  const { x: px, y: py } = proj(m.x, m.z)
-  return (
-    <g onClick={onSelect} style={{ cursor: 'pointer' }} transform={zoom(px, py)}>
-      <rect x={px - 32} y={py - 18} width={64} height={40} fill="transparent" />
-      <Plot px={px} py={py} color="#8a5a3a" />
-      <ellipse cx={px} cy={py - 2} rx={13} ry={5.5} fill="#6b4328" />
-      {[[-9, 0], [7, 2], [2, -5], [-3, 4], [11, -2]].map(([dx, dy], i) => (
-        <circle key={i} cx={px + dx} cy={py + dy} r={1.5} fill={i % 2 ? '#b98a5a' : '#4a2f1c'} />
-      ))}
-      {selected && <polygon points={diamond(px, py, 38, 19)} fill="none" stroke="#ffffff" strokeWidth={2.5} strokeDasharray="5 5" />}
-    </g>
-  )
+function drawCompost(ctx: Ctx, m: Memory) {
+  const { cx, by } = geom(m, 0)
+  R(ctx, cx - 1, by - 4, 2, 4, '#f1e6c8')
+  R(ctx, cx - 3, by - 7, 6, 3, '#d9534f')
+  R(ctx, cx - 2, by - 8, 4, 1, '#d9534f')
+  R(ctx, cx - 2, by - 6, 1, 1, '#ffffff')
+  R(ctx, cx + 1, by - 7, 1, 1, '#ffffff')
+  R(ctx, cx + 4, by - 1, 2, 2, '#5e8a3a')
+}
+
+function route(a: Memory, b: Memory) {
+  const A = { x: FX + a.x * T + 12, y: FY + a.z * T + 14 }
+  const B = { x: FX + b.x * T + 12, y: FY + b.z * T + 14 }
+  return [A, { x: B.x, y: A.y }, B]
+}
+
+function drawLinks(ctx: Ctx, pairs: [Memory, Memory][]) {
+  for (const [a, b] of pairs) {
+    const pts = route(a, b)
+    ctx.globalAlpha = clamp(Math.min(a.strength, b.strength) * 1.4, 0.3, 1)
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [p, q] = [pts[i], pts[i + 1]]
+      const len = Math.hypot(q.x - p.x, q.y - p.y)
+      for (let d = 6; d < len - 4; d += 5) R(ctx, p.x + ((q.x - p.x) * d) / len, p.y + ((q.y - p.y) * d) / len, 2, 2, '#f2d58a')
+    }
+  }
+  ctx.globalAlpha = 1
+}
+
+function drawBees(ctx: Ctx, pairs: [Memory, Memory][], now: number) {
+  for (const [a, b] of pairs) {
+    const pts = route(a, b)
+    const l1 = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y)
+    const l2 = Math.hypot(pts[2].x - pts[1].x, pts[2].y - pts[1].y)
+    const total = l1 + l2 || 1
+    const t = (((now / 6000 + a.x * 0.11 + b.z * 0.07) % 1) + 1) % 1
+    const d = (t < 0.5 ? t * 2 : 2 - t * 2) * total // there and back
+    const [p, q, f] = d < l1 ? [pts[0], pts[1], l1 ? d / l1 : 0] : [pts[1], pts[2], l2 ? (d - l1) / l2 : 0]
+    const x = p.x + (q.x - p.x) * f
+    const y = p.y + (q.y - p.y) * f - 7 + Math.sin(now / 160 + a.x) * 1.5
+    R(ctx, x - 1, y, 3, 2, '#ffd84a')
+    R(ctx, x, y, 1, 2, '#2a1f2d')
+    R(ctx, x - 1, y - 1 - (Math.floor(now / 90) % 2), 2, 1, '#ffffff')
+  }
+}
+
+function drawBrackets(ctx: Ctx, m: Memory, now: number) {
+  if (Math.floor(now / 350) % 2) return
+  const { ox, oy } = cellOrigin(m)
+  for (const [x, y, sx, sy] of [[ox, oy, 1, 1], [ox + T - 1, oy, -1, 1], [ox, oy + T - 1, 1, -1], [ox + T - 1, oy + T - 1, -1, -1]]) {
+    R(ctx, x, y, 1, 1, '#2a1f2d')
+    for (let i = 0; i < 5; i++) {
+      R(ctx, x + sx * i, y, 1, 1, '#ffffff')
+      R(ctx, x, y + sy * i, 1, 1, '#ffffff')
+    }
+  }
+}
+
+function draw(ctx: Ctx, memories: Memory[], day: number, selectedId: string | null, now: number) {
+  const things = memories.filter((m) => (m.fate === 'alive' || m.fate === 'composted') && !m.mergedInto)
+  const cells = new Map(things.map((m) => [`${m.x},${m.z}`, m]))
+  const alive = things.filter((m) => m.fate === 'alive')
+  const pairs: [Memory, Memory][] = []
+  for (const a of alive)
+    for (const id of a.links) {
+      const b = alive.find((o) => o.id === id)
+      if (b && a.id < b.id) pairs.push([a, b])
+    }
+
+  drawBackground(ctx)
+  drawFence(ctx)
+  drawTiles(ctx, cells)
+  drawLinks(ctx, pairs)
+  for (const m of [...things].sort((a, b) => a.z - b.z || a.x - b.x)) {
+    if (m.fate === 'composted') drawCompost(ctx, m)
+    else if (m.tree) drawTree(ctx, m, day, now)
+    else drawPlant(ctx, m, day, now)
+  }
+  drawBees(ctx, pairs, now)
+  const sel = things.find((m) => m.id === selectedId)
+  if (sel) drawBrackets(ctx, sel, now)
 }
 
 const labelOf = (m: Memory) => {
   if (m.fate === 'composted') return m.gist.split(' · ')[0].slice(0, 12)
-  if (m.tree) return m.gist.split(' · ').slice(0, 2).join(' · ').slice(0, 20)
+  if (m.tree) return m.gist.split(' · ').slice(0, 2).join(' · ').slice(0, 18)
   const [a, b] = m.keywords
-  return ((b && (a + ' ' + b).length <= 13 ? `${a} ${b}` : a) ?? '').slice(0, 13)
+  return ((b && (a + ' ' + b).length <= 12 ? `${a} ${b}` : a) ?? '').slice(0, 12)
 }
 
-function Label({ m }: { m: Memory }) {
-  const { x: px, y: py } = proj(m.x, m.z)
-  const t = labelOf(m)
-  const wd = t.length * 5.4 + 12
+/** A flat little flower for the herbarium. */
+export function PixelHead({ category, flat = false, size = 5 }: { category: Category; flat?: boolean; size?: number }) {
+  const sp = SPECIES[category]
   return (
-    <g pointerEvents="none">
-      <rect x={px - wd / 2} y={py + 20} width={wd} height={16} rx={8} fill="#ffffff" opacity={0.85} />
-      <text x={px} y={py + 31.5} textAnchor="middle" className="plant-label">
-        {t}
-      </text>
-    </g>
-  )
-}
-
-function Pollen({ a, b, day, now }: { a: Memory; b: Memory; day: number; now: number }) {
-  const ga = geom(a, day)
-  const gb = geom(b, day)
-  const strength = Math.min(a.strength, b.strength)
-  const t = (((now / 5200 + (a.x * 0.13 + b.z * 0.07)) % 1) + 1) % 1
-  const mx = (ga.px + gb.px) / 2
-  const my = Math.min(ga.y, gb.y) - 30
-  const hx = (1 - t) * (1 - t) * ga.x + 2 * (1 - t) * t * mx + t * t * gb.x
-  const hy = (1 - t) * (1 - t) * ga.y + 2 * (1 - t) * t * my + t * t * gb.y
-  return (
-    <g pointerEvents="none">
-      <circle cx={hx} cy={hy} r={3} fill="#ffffff" opacity={clamp(strength + 0.2, 0.3, 1)} />
-      <circle cx={hx} cy={hy} r={5.5} fill="#ffffff" opacity={0.25} />
-    </g>
-  )
-}
-
-function PathLine({ a, b }: { a: Memory; b: Memory }) {
-  const pa = proj(a.x, a.z)
-  const pb = proj(b.x, b.z)
-  const o = clamp(Math.min(a.strength, b.strength) * 1.3, 0.25, 1)
-  return (
-    <g pointerEvents="none" opacity={o}>
-      <line x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y} stroke="#d9cf45" strokeWidth={12} strokeLinecap="round" />
-      <line x1={pa.x} y1={pa.y - 1} x2={pb.x} y2={pb.y - 1} stroke={PATH} strokeWidth={9} strokeLinecap="round" />
-    </g>
+    <svg width={7 * size} height={5 * size} viewBox="0 0 7 5" shapeRendering="crispEdges" aria-hidden>
+      {sp.head.flatMap((row, j) =>
+        [...row].map((ch, i) =>
+          ch === '.' ? null : <rect key={`${i}-${j}`} x={i} y={j} width={1} height={1} fill={flat ? mix(petalColor(sp, ch), '#b9a98a', 0.6) : petalColor(sp, ch)} />,
+        ),
+      )}
+    </svg>
   )
 }
 
@@ -246,89 +327,38 @@ export default function Garden({
   selectedId: string | null
   onSelect: (id: string | null) => void
 }) {
-  const now = performance.now()
+  const ref = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const ctx = ref.current?.getContext('2d')
+    if (ctx) draw(ctx, memories, day, selectedId, performance.now())
+  })
+
   const things = memories.filter((m) => (m.fate === 'alive' || m.fate === 'composted') && !m.mergedInto)
-  const alive = things.filter((m) => m.fate === 'alive')
-  const order = [...things].sort((a, b) => a.x + a.z - (b.x + b.z) || a.x - b.x)
 
-  const pairs: [Memory, Memory][] = []
-  for (const a of alive)
-    for (const id of a.links) {
-      const b = alive.find((o) => o.id === id)
-      if (b && a.id < b.id) pairs.push([a, b])
-    }
-
-  const T = point(0, 0)
-  const R = point(GRID, 0)
-  const B = point(GRID, GRID)
-  const L = point(0, GRID)
-  const grid = Array.from({ length: GRID - 1 }, (_, i) => i + 1)
+  const onClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const lx = ((e.clientX - rect.left) / rect.width) * CW
+    const ly = ((e.clientY - rect.top) / rect.height) * CH
+    const c = Math.floor((lx - FX) / T)
+    const r = Math.floor((ly - FY) / T)
+    // sprites reach up into the tile above, so also accept a click just above a plant
+    const hit = things.find((m) => m.x === c && m.z === r) ?? things.find((m) => m.x === c && m.z === r + 1)
+    onSelect(hit ? hit.id : null)
+  }
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="garden" role="img" aria-label="An isometric garden showing the agent’s memories" onClick={() => onSelect(null)}>
-      <defs>
-        <radialGradient id="bg" cx="0.5" cy="0.45" r="0.8">
-          <stop offset="0" stopColor="#e3f1a6" />
-          <stop offset="1" stopColor="#b9d85a" />
-        </radialGradient>
-        <linearGradient id="top" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#c8e272" />
-          <stop offset="1" stopColor="#a6cf4a" />
-        </linearGradient>
-        <pattern id="dither" width="5" height="5" patternUnits="userSpaceOnUse">
-          <circle cx="1.3" cy="1.3" r="1.1" fill="#3f7f2c" />
-          <circle cx="3.8" cy="3.8" r="0.8" fill="#3f7f2c" />
-        </pattern>
-      </defs>
-      <rect width={W} height={H} fill="url(#bg)" />
-
-      {/* the block */}
-      <ellipse cx={OX + 30} cy={B.y + DEPTH + 16} rx={380} ry={34} fill="#6e9a2c" opacity={0.35} />
-      <polygon points={`${L.x},${L.y} ${B.x},${B.y} ${B.x},${B.y + DEPTH} ${L.x},${L.y + DEPTH}`} fill="#b7794a" />
-      <polygon points={`${R.x},${R.y} ${B.x},${B.y} ${B.x},${B.y + DEPTH} ${R.x},${R.y + DEPTH}`} fill="#9a6339" />
-      <polygon points={`${T.x},${T.y} ${R.x},${R.y} ${B.x},${B.y} ${L.x},${L.y}`} fill="url(#top)" />
-      {grid.map((i) => {
-        const a = point(i, 0)
-        const b = point(i, GRID)
-        const c = point(0, i)
-        const d = point(GRID, i)
+    <div className="garden-wrap">
+      <canvas ref={ref} width={CW} height={CH} className="garden" onClick={onClick} role="img" aria-label="A pixel-art field showing the agent’s memories" />
+      {things.map((m) => {
+        const { ox, oy } = cellOrigin(m)
         return (
-          <g key={i} stroke="#ffffff" strokeOpacity={0.16} strokeWidth={1.5}>
-            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
-            <line x1={c.x} y1={c.y} x2={d.x} y2={d.y} />
-          </g>
+          <span key={m.id} className="plant-label" style={{ left: `${((ox + 12) / CW) * 100}%`, top: `${((oy + 21) / CH) * 100}%` }}>
+            {labelOf(m)}
+          </span>
         )
       })}
-
-      <g onClick={(e) => e.stopPropagation()}>
-        {pairs.map(([a, b]) => (
-          <PathLine key={a.id + b.id} a={a} b={b} />
-        ))}
-        {order.map((m) =>
-          m.fate === 'composted' ? (
-            <Mound key={m.id} m={m} selected={m.id === selectedId} onSelect={() => onSelect(m.id)} />
-          ) : m.tree ? (
-            <Tree key={m.id} m={m} day={day} selected={m.id === selectedId} onSelect={() => onSelect(m.id)} />
-          ) : (
-            <Plant key={m.id} m={m} day={day} selected={m.id === selectedId} onSelect={() => onSelect(m.id)} />
-          ),
-        )}
-        {pairs.map(([a, b]) => (
-          <Pollen key={'p' + a.id + b.id} a={a} b={b} day={day} now={now} />
-        ))}
-        {order.map((m) => (
-          <Label key={'l' + m.id} m={m} />
-        ))}
-      </g>
-
-      {!things.length && (
-        <g pointerEvents="none">
-          <rect x={OX - 150} y={OY + 180} width={300} height={34} rx={17} fill="#ffffff" opacity={0.85} />
-          <text x={OX} y={OY + 202} textAnchor="middle" className="empty">
-            Bare ground. Tell the agent something.
-          </text>
-        </g>
-      )}
-    </svg>
+      {!things.length && <div className="empty">The field is empty. Tell the agent something.</div>}
+    </div>
   )
 }
