@@ -1,48 +1,35 @@
-# Memory Garden
+# Memory Garden Debugger
 
-A live visualization of an AI agent's memory as a garden. Chat with a small agent and watch its mind grow, link up, and forget.
+Drop in an agent's memory trace, get a live map of its memory, and scrub through time to see **why it retrieved what it retrieved**.
 
-> **Talk:** *What should forgetting look like?*
+> **Talk:** *Your agent's memory is a garden, and your logs are hiding the weeds.*
 
-Almost nobody designs for AI memory. This project treats memory as something with a lifecycle you can *see*, and uses forgetting as the lens: when an agent lets something go, what should the person see, and what should the agent be able to say about it?
+Anyone building agents with memory layers eventually asks: why did it retrieve X instead of Y? What got consolidated? What decayed? Reading logs to answer that is slow. A live map is faster.
 
-The agent here is a deliberately simple, rule-based stand-in (no model, no real data, nothing proprietary). The point is the interface, not the intelligence.
+## Three views, one canvas
 
-## Look
+1. **Garden.** Each memory is a plant. Size = how often it has been retrieved, colour = layer (short-term, episodic, semantic, procedural), opacity = strength. Consolidated memories grow into trees; vines connect them to what they absorbed.
+2. **Retrieval replay.** Pick any agent turn. The query appears above the garden, every candidate gets a line weighted by its similarity score, winners pulse, and losers say why they lost: decayed, already consolidated, outside the searched layers, below threshold, or outside top-k.
+3. **Timeline scrubber.** Drag across the session (or press play) and watch stores, merges, decays and retrievals happen in order. Pause on a consolidation to see exactly what merged into what.
 
-A top-down pixel-art farm field: tilled plots on a fenced lawn, tiny flower sprites, a round-canopy tree for consolidated memories, bees carrying pollen along sandy paths, and a mushroom on composted soil. It's drawn on a small canvas and scaled up with nearest-neighbour filtering; the UI uses the Pixelify Sans font and chunky wood-and-cream panels.
+Click any plant to inspect it: its strength over time, and every turn it was considered for, with the verdict.
 
-## The metaphor
+## Trace format
 
-| Memory event | Garden event |
-| --- | --- |
-| You tell the agent a fact | A seed is planted; it sprouts and blooms over a few days |
-| The fact isn't used | It wilts: stem bends, petals fall, colour drains |
-| The agent recalls it (you ask) | It's watered; neighbours it's linked to get a little fresher |
-| Two facts share a topic | Cross-pollination: a dotted sand path between them with a bee shuttling along it |
-| A fact is recalled and well-connected | Consolidation: it grows into a tree and absorbs its neighbours as little bushes |
-| Different kinds of memory | Different flower species (people, preferences, places, work, plans, facts) |
+Plain JSONL, one event per line, four event types. Any memory framework can emit this with a few lines.
 
-Plans decay fastest, people and preferences slowest, and trees barely at all. Memories that are linked decay more slowly.
+```jsonl
+{"type":"store","t":0,"id":"m1","layer":"episodic","text":"User is planning a trip to Lisbon in May"}
+{"type":"retrieve","t":22,"turn":1,"query":"Suggest flights","k":3,"threshold":0.4,"layers":["episodic"],"candidates":[{"id":"m1","score":0.86}],"selected":["m1"]}
+{"type":"consolidate","t":45,"from":["m1","m5"],"into":"m9","layer":"semantic","text":"Lisbon trip summary"}
+{"type":"decay","t":46,"id":"m1","to":0.5,"reason":"consolidated source"}
+```
 
-## Four ways to forget
+- `t` is any increasing clock (seconds is fine).
+- `retrieve.selected` is what the layer actually returned; if omitted it is derived from `k` and `threshold`. `layers` is optional (omitted means all were searched). Candidates may carry a `reason` note.
+- `decay` takes either `to` (new strength 0–1) or `delta`.
 
-The switcher in the UI changes what happens when a memory runs out of strength. This is the design question.
-
-| Style | What you see | What the agent knows | Trade-off |
-| --- | --- | --- | --- |
-| **Fade** | Wilts, then is simply gone | "I used to know something about that, but it faded." | Honest, but the detail is lost for good |
-| **Compost** | Returns to the soil as a dark plot with a mushroom; the gist remains and feeds new growth on the same topic | "I've only got the gist now." | Graceful loss that keeps some value |
-| **Press** | Flattened into a herbarium sheet, out of the garden | Can retrieve it whole on request | Safe, but nothing is really forgotten |
-| **Delete** | Vanishes with no wilting | "I don't have anything about that." (unaware) | Abrupt; the agent can't tell you it lost anything |
-
-## Design principles (draft)
-
-1. **Forgetting should be visible before it's final.** Wilting is a warning you can act on (water it, or let it go).
-2. **Loss should degrade, not cliff.** Detail goes first, gist last.
-3. **The agent should know what it has forgotten.** Honest "I used to know" beats silent amnesia.
-4. **Use strengthens.** Recall, links and consolidation are the only things that keep a memory alive.
-5. **People hold the garden's shears.** Any memory can be watered or let go by hand.
+The loss reasons are computed from the memory state just before each retrieval, so you get them without logging them.
 
 ## Try it
 
@@ -51,21 +38,13 @@ npm install
 npm run dev   # http://localhost:5180
 ```
 
-1. Hit **Plant a sample garden**, or type your own sentences.
-2. Let time pass (**A week passes**) and watch what wilts.
-3. Ask a question ("What do you remember about Amara?") to water something.
-4. Switch **Forgetting** style and compare.
+A sample trace (an assistant helping plan a trip) loads by default. Paste, choose or drop your own under **Trace**.
 
 ## How it's built
 
 - Vite + React + TypeScript, SVG rendering, no runtime dependencies beyond React.
-- `src/engine/memory.ts`: the whole memory model (keyword extraction, linking, decay, consolidation, the four forgetting styles). Pure functions over a `World`.
-- `src/components/Garden.tsx`: the SVG scene.
-- `src/App.tsx`: chat, controls, inspector, herbarium, journal.
+- `src/trace/parse.ts`: JSONL parsing and validation (errors per line, warnings for unknown ids).
+- `src/trace/replay.ts`: `stateAt(events, n)` replays the first n events (pure, so scrubbing is cheap); `analyzeRetrieval` explains each candidate's verdict.
+- `src/components/Garden.tsx`: the canvas. `Timeline.tsx`, `Detail.tsx`, `TracePanel.tsx`: the rest of the UI.
 
-## Open questions
-
-- Should the person ever see a wilting memory *before* they could be asked about it?
-- Is the gist a feature or a privacy leak?
-- Who decides when something should be forgotten: the agent, the user, or a policy?
-- What does forgetting look like for memories that other memories depend on?
+Generic by design: layer names and the sample are not tied to any particular memory product.
