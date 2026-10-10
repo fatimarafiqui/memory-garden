@@ -108,7 +108,7 @@ export function EventCard({ event, mems, layers }: { event: TraceEvent; mems: Ma
           ))}
         </ul>
         <p className="merge-into">
-          <span className="arrow">↓ merged into</span>
+          <span className="arrow">↓ folded into</span>
           <span className="mono">
             <LayerDot layer={event.layer ?? 'semantic'} layers={layers} />
             {event.into}

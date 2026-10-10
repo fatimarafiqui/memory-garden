@@ -98,16 +98,16 @@ export function analyzeRetrieval(events: TraceEvent[], idx: number): Verdict[] {
     const mem = mems.get(c.id)
     const reasons: string[] = []
     if (!won.has(c.id)) {
-      if (!mem) reasons.push('not in memory at this point')
+      if (!mem) reasons.push('not in memory yet')
       else {
-        if (mem.mergedInto) reasons.push(`already consolidated into ${mem.mergedInto}`)
+        if (mem.mergedInto) reasons.push(`already folded into ${mem.mergedInto}`)
         if (mem.strength <= FORGOTTEN_BELOW) reasons.push(`forgotten (strength ${mem.strength.toFixed(2)})`)
-        else if (mem.strength < FADING_BELOW) reasons.push(`decayed (strength ${mem.strength.toFixed(2)})`)
-        if (e.layers && !e.layers.includes(mem.layer)) reasons.push(`${mem.layer} not in searched layers`)
+        else if (mem.strength < FADING_BELOW) reasons.push(`too faded (strength ${mem.strength.toFixed(2)})`)
+        if (e.layers && !e.layers.includes(mem.layer)) reasons.push(`in ${mem.layer}, which wasn't searched`)
       }
-      if (e.threshold !== undefined && c.score < e.threshold) reasons.push(`score ${c.score.toFixed(2)} below threshold ${e.threshold.toFixed(2)}`)
-      if (i >= k) reasons.push(`ranked #${i + 1}, outside top-${k}`)
-      if (!reasons.length) reasons.push('not selected')
+      if (e.threshold !== undefined && c.score < e.threshold) reasons.push(`under the ${e.threshold.toFixed(2)} score cut`)
+      if (i >= k) reasons.push(`ranked #${i + 1}, only the top ${k} return`)
+      if (!reasons.length) reasons.push('not picked')
     }
     return { id: c.id, score: c.score, rank: i + 1, won: won.has(c.id), reasons, mem, note: c.reason }
   })

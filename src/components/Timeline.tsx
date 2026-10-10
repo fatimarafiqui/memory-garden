@@ -3,10 +3,10 @@ import { describe } from '../trace/replay'
 import type { TraceEvent } from '../trace/types'
 
 export const EVENT_COLORS: Record<TraceEvent['type'], string> = {
-  store: '#7fd3b2',
-  retrieve: '#8fb8ff',
-  consolidate: '#ecc372',
-  decay: '#e79a9a',
+  store: '#7a9e7e',
+  retrieve: '#c99a3c',
+  consolidate: '#2c3e2d',
+  decay: '#c4776b',
 }
 
 export default function Timeline({
@@ -74,7 +74,7 @@ export default function Timeline({
               <span className="tl-idx">#{cursor}</span> t={current.t}s · <span style={{ color: EVENT_COLORS[current.type] }}>{describe(current)}</span>
             </>
           ) : (
-            <span className="muted">before the first event</span>
+            <span className="muted">start of the session</span>
           )}
         </div>
       </div>

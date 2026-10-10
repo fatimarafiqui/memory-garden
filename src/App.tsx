@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import Garden, { Overlay } from './components/Garden'
+import Garden, { Head, LAYER_COLORS, Overlay, colorOf } from './components/Garden'
 import Timeline, { EVENT_COLORS } from './components/Timeline'
 import { EventCard, MemoryCard, RetrievalCard } from './components/Detail'
 import TracePanel from './components/TracePanel'
@@ -90,35 +90,26 @@ export default function App() {
     <div className="app" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       <header className="top">
         <div className="brand">
-          <h1>
-            Memory Garden <span>Debugger</span>
-          </h1>
-          <p className="kicker">See why your agent retrieved X instead of Y, what consolidated, and what decayed.</p>
+          <svg className="mark" viewBox="0 0 40 40" aria-hidden>
+            <path d="M20 37 C20 28 19 22 20 14" stroke="#5f8a63" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+            <path d="M20 27 q-8 -1 -11 -7 q7 0 11 7" fill="#5f8a63" />
+            <path d="M20 22 q7 -2 9 -8 q-6 1 -9 8" fill="#7a9e7e" />
+            {Array.from({ length: 8 }, (_, i) => (
+              <ellipse key={i} cx="20" cy="5.5" rx="2.6" ry="4.6" fill="#f1e2c2" stroke="#2c3e2d" strokeOpacity="0.5" strokeWidth="0.7" transform={`rotate(${i * 45} 20 10)`} />
+            ))}
+            <circle cx="20" cy="10" r="2.6" fill="#d9a441" />
+          </svg>
+          <div>
+            <h1>Memory Garden</h1>
+            <p className="kicker">
+              Logs tell you what your agent remembered. This shows you <em>why</em>.
+            </p>
+          </div>
         </div>
-        <dl className="kpis mono">
-          <div>
-            <dt>live</dt>
-            <dd>{count('live')}</dd>
-          </div>
-          <div>
-            <dt>fading</dt>
-            <dd>{count('fading')}</dd>
-          </div>
-          <div>
-            <dt>merged</dt>
-            <dd>{count('merged')}</dd>
-          </div>
-          <div>
-            <dt>forgotten</dt>
-            <dd>{count('forgotten')}</dd>
-          </div>
-          <div>
-            <dt>turns</dt>
-            <dd>
-              {turnsSoFar}/{retrieves.length}
-            </dd>
-          </div>
-        </dl>
+        <p className="readout mono" aria-live="off">
+          <b>{count('live')}</b> growing · <b>{count('fading')}</b> wilting · <b>{count('merged')}</b> folded · <b>{count('forgotten')}</b> forgotten
+          <span className="sep">|</span> turn <b>{turnsSoFar}</b> of {retrieves.length}
+        </p>
       </header>
 
       <main className="layout">
@@ -141,12 +132,7 @@ export default function App() {
                 ))}
               </div>
             ) : (
-              <ul className="legend">
-                <li>size = times retrieved</li>
-                <li>colour = layer</li>
-                <li>opacity = strength</li>
-                <li>vines = consolidation</li>
-              </ul>
+              <Key layers={layout.layers} />
             )}
           </div>
 
@@ -157,6 +143,7 @@ export default function App() {
               layers={layout.layers}
               laneWidth={layout.laneWidth}
               cursor={cursor}
+              current={current}
               overlay={overlay}
               selectedId={selectedId}
               onSelect={(id) => {
@@ -173,7 +160,7 @@ export default function App() {
           <div className="seg tabs" role="tablist" aria-label="Panel">
             {(['detail', 'events', 'trace'] as Tab[]).map((t) => (
               <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
-                {t === 'detail' ? 'Inspect' : t === 'events' ? `Events · ${events.length}` : 'Trace'}
+                {t === 'detail' ? 'Field notes' : t === 'events' ? `Log · ${events.length}` : 'Load a trace'}
               </button>
             ))}
           </div>
@@ -185,8 +172,9 @@ export default function App() {
               {selected && <MemoryCard m={selected} events={events} cursor={cursor} layers={layout.layers} onClose={() => setSelectedId(null)} />}
               {!current && !selected && (
                 <section className="card hint">
-                  <p>Press ▶ or drag the timeline to replay the trace. Click any plant to inspect a memory.</p>
-                  <p className="muted">Switch to Retrieval replay and pick a turn to see why each candidate won or lost.</p>
+                  <p className="hand-p">Start here.</p>
+                  <p>Press ▶ to replay the session, or drag along the timeline. Click any plant to see its story.</p>
+                  <p className="muted">The interesting bit is <b>Retrieval replay</b>: pick a turn and see why each memory made it, or didn’t.</p>
                 </section>
               )}
             </div>
@@ -208,6 +196,31 @@ export default function App() {
           {tab === 'trace' && <TracePanel draft={draft} setDraft={setDraft} result={result} onApply={() => load(draft)} onSample={() => load(SAMPLE_TRACE)} />}
         </aside>
       </main>
+
+      <footer className="foot">
+        <span>
+          Designed and built by <a href="https://fatimarafiqui.com">Fatima Rafiqui</a>
+        </span>
+        <span className="muted">The sample session is made up. Drop in your own trace to see your agent’s garden.</span>
+      </footer>
+    </div>
+  )
+}
+
+const KEY_SPECIES: Record<string, 'sprig' | 'daisy' | 'tulip' | 'lavender'> = { 'short-term': 'sprig', episodic: 'daisy', semantic: 'tulip', procedural: 'lavender' }
+
+function Key({ layers }: { layers: string[] }) {
+  return (
+    <div className="key" aria-label="How to read the garden">
+      {layers.map((l) => (
+        <span key={l} className="key-item">
+          <svg viewBox="-14 -14 28 28" width="22" height="22" aria-hidden>
+            <Head species={KEY_SPECIES[l] ?? 'daisy'} R={9} color={LAYER_COLORS[l] ?? colorOf(l, layers)} />
+          </svg>
+          {l}
+        </span>
+      ))}
+      <span className="key-rules">bigger = recalled more · fainter = weaker · vines = merged</span>
     </div>
   )
 }
